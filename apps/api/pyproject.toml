@@ -1,0 +1,19 @@
+[project]
+name = "augmented-trade-tech-backend"
+version = "0.1.0"
+description = "FastAPI backend for Augmented Trade Tech"
+readme = "README.md"
+requires-python = ">=3.11"
+dependencies = [
+    "fastapi>=0.110.0",
+    "mangum>=0.17.0",
+    "sqlalchemy>=2.0.0",
+    "alembic>=1.13.0",
+    "psycopg[binary]>=3.1.18",
+    "pydantic>=2.6.0",
+    "ulid-py>=0.0.3",
+    "uvicorn>=0.28.0",
+    "python-dotenv>=1.0.1",
+    "pgvector>=0.2.0",
+    "pytest>=8.0.0",
+]
