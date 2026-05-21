@@ -14,6 +14,12 @@ from apps.api.app.routers.jobs import router as jobs_router
 from apps.api.app.routers.dispatch import router as dispatch_router
 from apps.api.app.routers.customers import router as customers_router
 from apps.api.app.routers.ai import router as ai_router, equipment_router
+from apps.api.app.routers.invoices import router as invoices_router, webhook_router
+from apps.api.app.routers.qbo import router as qbo_router
+from apps.api.app.routers.portal import router as portal_router
+from apps.api.app.routers.membership_plans import router as membership_plans_router
+from apps.api.app.routers.memberships import router as memberships_router
+from apps.api.app.routers.loyalty import router as loyalty_router
 
 app = FastAPI(
     title="Augmented Trade Tech API",
@@ -40,6 +46,13 @@ app.include_router(dispatch_router)
 app.include_router(customers_router)
 app.include_router(ai_router)
 app.include_router(equipment_router)
+app.include_router(invoices_router)
+app.include_router(webhook_router)
+app.include_router(qbo_router)
+app.include_router(portal_router)
+app.include_router(membership_plans_router)
+app.include_router(memberships_router)
+app.include_router(loyalty_router)
 
 PUBLIC_PREFIXES = ("/docs", "/redoc", "/openapi.json", "/mock-s3-upload")
 PUBLIC_PATHS = {
@@ -50,8 +63,14 @@ PUBLIC_PATHS = {
     "/auth/login",
     "/auth/refresh",
     "/auth/logout",
-    "/onboarding/company"
+    "/onboarding/company",
+    "/webhooks/stripe",
+    "/integrations/qbo/callback",
+    "/portal/auth/magic-link",
+    "/portal/auth/verify",
+    "/portal/company-config"
 }
+
 
 @app.middleware("http")
 async def add_rls_context_middleware(request: Request, call_next):
@@ -79,6 +98,7 @@ async def add_rls_context_middleware(request: Request, call_next):
         try:
             payload = jwt.decode(token, JWT_SECRET, algorithms=[ALGORITHM])
             request.state.user_id = payload.get("user_id")
+            request.state.customer_id = payload.get("customer_id")
             request.state.company_id = payload.get("company_id")
             request.state.role = payload.get("role")
             request.state.email = payload.get("email")
@@ -93,6 +113,7 @@ async def add_rls_context_middleware(request: Request, call_next):
             try:
                 payload = jwt.decode(token, JWT_SECRET, algorithms=[ALGORITHM])
                 request.state.user_id = payload.get("user_id")
+                request.state.customer_id = payload.get("customer_id")
                 request.state.company_id = payload.get("company_id")
                 request.state.role = payload.get("role")
                 request.state.email = payload.get("email")

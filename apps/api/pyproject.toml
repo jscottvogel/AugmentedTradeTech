@@ -26,4 +26,5 @@ dependencies = [
     "python-multipart>=0.0.5",
     "langgraph>=0.1.0",
     "langchain-anthropic>=0.1.0",
+    "stripe>=15.1.0",
 ]

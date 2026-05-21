@@ -22,7 +22,7 @@ from apps.api.app.models.loyalty import LoyaltyAccount, LoyaltyLedger, LoyaltyBa
 from apps.api.app.models.dispatch import JobPool, TechLocationPing
 from apps.api.app.models.sync import SyncQueue
 from apps.api.app.models.ai import AIRequest, JobEmbedding, AuditLog
-from apps.api.app.models.auth import MagicLinkToken, RefreshToken
+from apps.api.app.models.auth import MagicLinkToken, RefreshToken, CustomerMagicLinkToken
 
 # this is the Alembic Config object, which provides
 # access to the values within the .ini file in use.

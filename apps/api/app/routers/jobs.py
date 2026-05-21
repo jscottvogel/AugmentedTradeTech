@@ -578,8 +578,14 @@ def transition_job_status(id: str, req: JobStatusTransitionRequest, request: Req
 
     if new_status == "on_site" and not job.arrived_at:
         job.arrived_at = current_time
-    elif new_status == "completed" and not job.completed_at:
-        job.completed_at = current_time
+    elif new_status == "completed":
+        if not job.completed_at:
+            job.completed_at = current_time
+        try:
+            from apps.api.app.routers.invoices import create_draft_invoice_from_job
+            create_draft_invoice_from_job(db, job, user_id)
+        except Exception as e:
+            logger.error(f"Error auto-drafting invoice for job {id}: {e}", exc_info=True)
 
     # Insert status history entry
     hist = JobStatusHistory(

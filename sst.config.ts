@@ -58,6 +58,36 @@ export default $config({
       },
     });
 
+    // 7. QuickBooks Online Sync Queue Subscriber
+    notificationQueue.subscribe({
+      handler: "apps/api/app/cron/qbo_sync_worker.handler",
+      runtime: "python3.13",
+      link: [db],
+      vpc,
+    });
+
+    // 8. Daily Membership Renewal Reminder Cron (Runs every 1 day)
+    new sst.aws.Cron("MembershipReminderCron", {
+      schedule: "rate(1 day)",
+      job: {
+        handler: "apps/api/app/cron/membership_reminder.handler",
+        runtime: "python3.13",
+        link: [db],
+        vpc,
+      },
+    });
+    // 9. Daily Loyalty Expiry Cron (Runs daily at 2am)
+    new sst.aws.Cron("LoyaltyExpiryCron", {
+      schedule: "cron(0 2 * * ? *)",
+      job: {
+        handler: "apps/api/app/cron/loyalty_expiry.handler",
+        runtime: "python3.13",
+        link: [db],
+        vpc,
+      },
+    });
+
+
     return {
       databaseHost: db.host,
       mediaUrl: mediaRouter.url,

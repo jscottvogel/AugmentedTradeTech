@@ -19,7 +19,8 @@ import {
   Info,
   ChevronRight,
   ShieldAlert,
-  Loader2
+  Loader2,
+  Database
 } from "lucide-react";
 
 export default function HomePage() {
@@ -715,22 +716,41 @@ function HomeContent() {
         {/* Action Grid */}
         <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
           {user?.role === "company_admin" && (
-            <Link href="/settings/team" className="block group">
-              <div className="h-full p-6 glass-card glass-card-hover rounded-2xl flex flex-col gap-4">
-                <div className="w-12 h-12 rounded-xl bg-indigo-500/10 border border-indigo-500/20 flex items-center justify-center text-indigo-400 group-hover:scale-105 transition-transform duration-300">
-                  <Users className="w-6 h-6" />
+            <>
+              <Link href="/settings/team" className="block group">
+                <div className="h-full p-6 glass-card glass-card-hover rounded-2xl flex flex-col gap-4">
+                  <div className="w-12 h-12 rounded-xl bg-indigo-500/10 border border-indigo-500/20 flex items-center justify-center text-indigo-400 group-hover:scale-105 transition-transform duration-300">
+                    <Users className="w-6 h-6" />
+                  </div>
+                  <div className="space-y-1">
+                    <h3 className="font-bold text-white text-lg group-hover:text-indigo-400 transition-colors flex items-center gap-1">
+                      Team Management
+                      <ChevronRight className="w-4 h-4 opacity-0 group-hover:opacity-100 group-hover:translate-x-1 transition-all" />
+                    </h3>
+                    <p className="text-sm text-slate-400 leading-relaxed">
+                      Invite new team members, manage access privileges, configure technician trades, and update rosters.
+                    </p>
+                  </div>
                 </div>
-                <div className="space-y-1">
-                  <h3 className="font-bold text-white text-lg group-hover:text-indigo-400 transition-colors flex items-center gap-1">
-                    Team Management
-                    <ChevronRight className="w-4 h-4 opacity-0 group-hover:opacity-100 group-hover:translate-x-1 transition-all" />
-                  </h3>
-                  <p className="text-sm text-slate-400 leading-relaxed">
-                    Invite new team members, manage access privileges, configure technician trades, and update rosters.
-                  </p>
+              </Link>
+
+              <Link href="/settings/integrations" className="block group">
+                <div className="h-full p-6 glass-card glass-card-hover rounded-2xl flex flex-col gap-4">
+                  <div className="w-12 h-12 rounded-xl bg-purple-500/10 border border-purple-500/20 flex items-center justify-center text-purple-400 group-hover:scale-105 transition-transform duration-300">
+                    <Database className="w-6 h-6" />
+                  </div>
+                  <div className="space-y-1">
+                    <h3 className="font-bold text-white text-lg group-hover:text-purple-400 transition-colors flex items-center gap-1">
+                      QuickBooks Integration
+                      <ChevronRight className="w-4 h-4 opacity-0 group-hover:opacity-100 group-hover:translate-x-1 transition-all" />
+                    </h3>
+                    <p className="text-sm text-slate-400 leading-relaxed">
+                      Connect your QuickBooks Online account, configure service/parts mappings, and view background sync logs.
+                    </p>
+                  </div>
                 </div>
-              </div>
-            </Link>
+              </Link>
+            </>
           )}
 
           {/* Profile Card */}

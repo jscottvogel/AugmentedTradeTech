@@ -28,3 +28,15 @@ class RefreshToken(Base, AuditMixin):
 
     # Relationship to User
     user = relationship("User", foreign_keys=[user_id])
+
+class CustomerMagicLinkToken(Base, AuditMixin):
+    __tablename__ = "customer_magic_link_tokens"
+
+    id = Column(String, primary_key=True, default=generate_ulid_string)
+    customer_id = Column(String, ForeignKey("customers.id", ondelete="CASCADE"), nullable=False, index=True)
+    token_hash = Column(String, nullable=False, unique=True, index=True)
+    expires_at = Column(DateTime(timezone=True), nullable=False)
+    used_at = Column(DateTime(timezone=True), nullable=True)
+
+    # Relationship to Customer
+    customer = relationship("Customer", foreign_keys=[customer_id])

@@ -493,6 +493,16 @@ function JobCardContent() {
             </button>
           )}
 
+          {["completed", "invoiced", "paid"].includes(job.status) && (
+            <button
+              onClick={() => router.push(`/app/jobs/${job.id}/invoice`)}
+              className="w-full py-4 rounded-xl font-bold text-xs flex items-center justify-center gap-2 text-white border-none shadow-lg transition duration-200 cursor-pointer bg-gradient-to-r from-indigo-500 to-purple-650 hover:from-indigo-600 hover:to-purple-700 shadow-indigo-500/25"
+            >
+              <FileText className="w-4 h-4" />
+              <span>Review Invoice</span>
+            </button>
+          )}
+
           {/* Guided Inspection Entry Card */}
           {job.status === "in_progress" && (
             <div className="glass-card rounded-2xl p-5 border border-indigo-500/25 relative overflow-hidden my-2">

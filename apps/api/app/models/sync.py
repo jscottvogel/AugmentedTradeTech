@@ -1,9 +1,13 @@
 from sqlalchemy import Column, String, DateTime, Integer, ForeignKey, Index
 from sqlalchemy.dialects.postgresql import JSONB
-from apps.api.app.models.base import Base, TenantAuditMixin
+from apps.api.app.models.base import Base
 
-class SyncQueue(Base, TenantAuditMixin):
+class SyncQueue(Base):
     __tablename__ = "sync_queue"
+
+    id = Column(String, primary_key=True)
+    company_id = Column(String, ForeignKey("companies.id", ondelete="CASCADE"), nullable=False)
+    created_at = Column(DateTime(timezone=True), nullable=False, server_default="now()")
 
     user_id = Column(String, ForeignKey("users.id", ondelete="CASCADE"), nullable=False)
     entity_type = Column(String, nullable=False) # job | job_note | job_photo | job_status | inspection_step
