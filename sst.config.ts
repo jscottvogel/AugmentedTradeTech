@@ -33,7 +33,7 @@ export default $config({
     const { bucket, mediaRouter } = createStorage();
 
     // 3. Queue Stack (SQS Queues: sync, ai, notification)
-    const { syncQueue, aiQueue, notificationQueue } = createQueues();
+    const { syncQueue, syncQueueDLQ, aiQueue, notificationQueue } = createQueues();
 
     // 4. API Stack (FastAPI Lambda Function URL behind CloudFront Router)
     const { apiFunction, apiRouter } = createApi({
@@ -84,6 +84,19 @@ export default $config({
         runtime: "python3.13",
         link: [db],
         vpc,
+      },
+    });
+
+    // 10. Sync Queue Subscriber (Processes batches of 10)
+    syncQueue.subscribe({
+      handler: "apps/api/app/cron/sync_queue_worker.handler",
+      runtime: "python3.13",
+      link: [db, syncQueue, syncQueueDLQ],
+      vpc,
+      transform: {
+        eventSourceMapping: {
+          batchSize: 10,
+        },
       },
     });
 

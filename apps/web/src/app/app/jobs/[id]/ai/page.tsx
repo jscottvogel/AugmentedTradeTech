@@ -4,6 +4,7 @@ import React, { useState, useEffect, useRef } from "react";
 import { useParams, useRouter, useSearchParams } from "next/navigation";
 import { useAuth } from "../../../../../hooks/useAuth";
 import { AuthGuard } from "../../../../../components/AuthGuard";
+import { offlineSafeFetch } from "../../../../../utils/apiClient";
 import {
   ArrowLeft,
   Bot,
@@ -330,7 +331,7 @@ function SeniorTechChatContent() {
   const handleAddToJobNotes = async (bodyText: string) => {
     if (!accessToken) return;
     try {
-      const res = await fetch(`${API_URL}/jobs/${id}/notes`, {
+      const res = await offlineSafeFetch(`${API_URL}/jobs/${id}/notes`, {
         method: "POST",
         headers: {
           "Content-Type": "application/json",

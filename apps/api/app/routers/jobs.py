@@ -182,6 +182,7 @@ def serialize_job(job: Job) -> Dict[str, Any]:
         "is_included_visit": job.is_included_visit,
         "source": job.source,
         "created_at": job.created_at.isoformat(),
+        "updated_at": job.updated_at.isoformat() if job.updated_at else None,
         "customer": None,
         "equipment": None,
         "technicians": [],

@@ -20,6 +20,7 @@ from apps.api.app.routers.portal import router as portal_router
 from apps.api.app.routers.membership_plans import router as membership_plans_router
 from apps.api.app.routers.memberships import router as memberships_router
 from apps.api.app.routers.loyalty import router as loyalty_router
+from apps.api.app.routers.sync import router as sync_router
 
 app = FastAPI(
     title="Augmented Trade Tech API",
@@ -53,6 +54,7 @@ app.include_router(portal_router)
 app.include_router(membership_plans_router)
 app.include_router(memberships_router)
 app.include_router(loyalty_router)
+app.include_router(sync_router)
 
 PUBLIC_PREFIXES = ("/docs", "/redoc", "/openapi.json", "/mock-s3-upload")
 PUBLIC_PATHS = {

@@ -28,7 +28,9 @@ import {
 } from "lucide-react";
 
 import PhotoCapture from "../../../../../components/PhotoCapture";
-import { getOfflinePhotos, deleteOfflinePhoto } from "../../../../../utils/indexedDB";
+import { getOfflinePhotos, deleteOfflinePhoto, getSyncQueue, saveOfflinePhoto } from "../../../../../utils/indexedDB";
+import { offlineSafeFetch } from "../../../../../utils/apiClient";
+import { useConnectivity } from "../../../../../context/ConnectivityContext";
 
 // Interfaces matching backend models
 interface WorkflowStep {
@@ -100,9 +102,9 @@ function GuidedInspectionContent() {
   const [error, setError] = useState<string | null>(null);
 
   // Connection & Saving States
-  const [isOnline, setIsOnline] = useState(true);
+  const { isOnline, syncStatus } = useConnectivity();
   const [saveStatus, setSaveStatus] = useState<"idle" | "saving" | "saved" | "offline-queued">("idle");
-  const [offlineQueue, setOfflineQueue] = useState<Array<{ stepKey: string; inputs: any; skipped: boolean; idempotencyKey: string }>>([]);
+  const [offlineQueueLength, setOfflineQueueLength] = useState(0);
 
   // AI & Chat States
   const [aiRunningStep, setAiRunningStep] = useState<string | null>(null);
@@ -129,33 +131,26 @@ function GuidedInspectionContent() {
   // Debounce ref
   const debounceTimerRef = useRef<NodeJS.Timeout | null>(null);
 
-  // Initialize Connection Listener & Offline Sync Queue
-  useEffect(() => {
-    if (typeof window !== "undefined") {
-      setIsOnline(navigator.onLine);
-      const handleOnline = () => {
-        setIsOnline(true);
-        // Trigger sync queue drain
-        drainOfflineQueue();
-      };
-      const handleOffline = () => {
-        setIsOnline(false);
-      };
-      window.addEventListener("online", handleOnline);
-      window.addEventListener("offline", handleOffline);
-
-      // Load cached sync queue
-      const savedQueue = localStorage.getItem(`inspection_sync_queue_${id}`);
-      if (savedQueue) {
-        setOfflineQueue(JSON.parse(savedQueue));
-      }
-
-      return () => {
-        window.removeEventListener("online", handleOnline);
-        window.removeEventListener("offline", handleOffline);
-      };
+  // Load/update offline queue length and refresh on sync success
+  const updateOfflineQueueLength = async () => {
+    try {
+      const queue = await getSyncQueue();
+      const jobMutations = queue.filter(item => item.entity_id === id);
+      setOfflineQueueLength(jobMutations.length);
+    } catch (err) {
+      console.warn("Failed to retrieve offline queue length:", err);
     }
-  }, [id]);
+  };
+
+  useEffect(() => {
+    updateOfflineQueueLength();
+  }, [id, syncStatus, saveStatus]);
+
+  useEffect(() => {
+    if (syncStatus === 'success') {
+      fetchJobAndWorkflow();
+    }
+  }, [syncStatus]);
 
   // Load Job and Workflow configuration
   useEffect(() => {
@@ -170,7 +165,7 @@ function GuidedInspectionContent() {
       setError(null);
 
       // Fetch Job Details
-      const jobRes = await fetch(`${API_URL}/jobs/${id}`, {
+      const jobRes = await offlineSafeFetch(`${API_URL}/jobs/${id}`, {
         headers: { Authorization: `Bearer ${accessToken}` }
       });
       if (!jobRes.ok) throw new Error("Failed to load job details.");
@@ -178,7 +173,7 @@ function GuidedInspectionContent() {
       setJob(jobData);
 
       // Fetch Workflow configuration
-      const wfRes = await fetch(`${API_URL}/jobs/${id}/workflow`, {
+      const wfRes = await offlineSafeFetch(`${API_URL}/jobs/${id}/workflow`, {
         headers: { Authorization: `Bearer ${accessToken}` }
       });
       if (!wfRes.ok) throw new Error("Failed to load workflow configuration.");
@@ -198,151 +193,11 @@ function GuidedInspectionContent() {
     console.error("Workflow loading error:", err);
   };
 
-  // Auto-drain local storage sync queue when returning online
-  const drainOfflineQueue = async () => {
-    // 1. Drain offline photos cached in IndexedDB
-    try {
-      const offlinePhotos = await getOfflinePhotos(id);
-      for (const photo of offlinePhotos) {
-        // A. Get presigned URL
-        const presignRes = await fetch(`${API_URL}/jobs/${id}/photos/presign`, {
-          method: "POST",
-          headers: {
-            "Content-Type": "application/json",
-            Authorization: `Bearer ${accessToken}`
-          },
-          body: JSON.stringify({
-            photo_type: photo.photoType
-          })
-        });
-        if (!presignRes.ok) continue;
-
-        const { upload_url, s3_key, headers } = await presignRes.json();
-
-        // B. Direct PUT upload to S3
-        await new Promise<void>((resolve, reject) => {
-          const xhr = new XMLHttpRequest();
-          xhr.open("PUT", upload_url, true);
-          if (headers) {
-            Object.entries(headers).forEach(([k, v]) => {
-              xhr.setRequestHeader(k, v as string);
-            });
-          }
-          xhr.onload = () => xhr.status >= 200 && xhr.status < 300 ? resolve() : reject(new Error("Upload failed"));
-          xhr.onerror = () => reject(new Error("Network error"));
-          xhr.send(photo.file);
-        });
-
-        // C. Register photo details in DB
-        const registerRes = await fetch(`${API_URL}/jobs/${id}/photos`, {
-          method: "POST",
-          headers: {
-            "Content-Type": "application/json",
-            Authorization: `Bearer ${accessToken}`
-          },
-          body: JSON.stringify({
-            s3_key: s3_key,
-            photo_type: photo.photoType,
-            caption: photo.caption,
-            file_size_bytes: photo.file.size,
-            mime_type: photo.file.type
-          })
-        });
-        if (!registerRes.ok) continue;
-
-        const updatedJob = await registerRes.json();
-        const matched = updatedJob.photos.find((p: any) => p.cdn_url.includes(s3_key));
-        const finalCdnUrl = matched?.cdn_url || `${API_URL}/mock-s3-upload/${s3_key}`;
-        const finalId = matched?.id || `jph_${Date.now()}`;
-
-        // D. Update step inputs in DB
-        const currentInputs = progress[photo.stepKey]?.inputs || {};
-        const nextInputs = {
-          ...currentInputs,
-          photo_url: finalCdnUrl,
-          photo_id: finalId,
-          caption: photo.caption
-        };
-
-        await fetch(`${API_URL}/jobs/${id}/workflow/${photo.stepKey}`, {
-          method: "PUT",
-          headers: {
-            "Content-Type": "application/json",
-            Authorization: `Bearer ${accessToken}`
-          },
-          body: JSON.stringify({
-            inputs: nextInputs,
-            skipped: false,
-            idempotency_key: `ik_${Math.random().toString(36).substr(2, 9)}`
-          })
-        });
-
-        // E. Remove from IndexedDB
-        await deleteOfflinePhoto(photo.id);
-      }
-    } catch (dbErr) {
-      console.error("Failed to drain offline photos:", dbErr);
-    }
-
-    // 2. Drain text inputs from LocalStorage
-    const queueStr = localStorage.getItem(`inspection_sync_queue_${id}`);
-    if (!queueStr) {
-      // Refresh backend progress
-      fetchJobAndWorkflow();
-      return;
-    }
-
-    const queue = JSON.parse(queueStr);
-    if (queue.length === 0) {
-      // Refresh backend progress
-      fetchJobAndWorkflow();
-      return;
-    }
-
-    setSaveStatus("saving");
-    let hasFailed = false;
-
-    for (const item of queue) {
-      try {
-        const res = await fetch(`${API_URL}/jobs/${id}/workflow/${item.stepKey}`, {
-          method: "PUT",
-          headers: {
-            "Content-Type": "application/json",
-            Authorization: `Bearer ${accessToken}`
-          },
-          body: JSON.stringify({
-            inputs: item.inputs,
-            skipped: item.skipped,
-            idempotency_key: item.idempotencyKey
-          })
-        });
-
-        if (!res.ok) {
-          hasFailed = true;
-          break;
-        }
-      } catch (err) {
-        hasFailed = true;
-        break;
-      }
-    }
-
-    if (!hasFailed) {
-      localStorage.removeItem(`inspection_sync_queue_${id}`);
-      setOfflineQueue([]);
-      setSaveStatus("saved");
-      // Refresh backend progress
-      fetchJobAndWorkflow();
-    } else {
-      setSaveStatus("offline-queued");
-    }
-  };
-
   // Perform API Sync (with Debounce)
   const saveStepData = async (stepKey: string, inputs: any, skipped: boolean = false) => {
     const idempotencyKey = `ik_${Math.random().toString(36).substr(2, 9)}`;
 
-    // Update local state state first
+    // Update local state first
     setProgress(prev => ({
       ...prev,
       [stepKey]: {
@@ -354,23 +209,9 @@ function GuidedInspectionContent() {
       }
     }));
 
-    if (!navigator.onLine) {
-      // Offline: Add to local Storage sync queue
-      const updatedQueue = [...offlineQueue.filter(q => q.stepKey !== stepKey), {
-        stepKey,
-        inputs,
-        skipped,
-        idempotencyKey
-      }];
-      setOfflineQueue(updatedQueue);
-      localStorage.setItem(`inspection_sync_queue_${id}`, JSON.stringify(updatedQueue));
-      setSaveStatus("offline-queued");
-      return;
-    }
-
     setSaveStatus("saving");
     try {
-      const res = await fetch(`${API_URL}/jobs/${id}/workflow/${stepKey}`, {
+      const res = await offlineSafeFetch(`${API_URL}/jobs/${id}/workflow/${stepKey}`, {
         method: "PUT",
         headers: {
           "Content-Type": "application/json",
@@ -386,30 +227,24 @@ function GuidedInspectionContent() {
       if (!res.ok) throw new Error("Failed to save step progress.");
       const data = await res.json();
 
-      // Merge backend returned progress (retains completed timestamps)
-      setProgress(prev => {
-        const currentKey = prev[stepKey]?.idempotency_key;
-        if (currentKey && currentKey !== idempotencyKey) {
-          return prev;
-        }
-        return {
-          ...prev,
-          [stepKey]: data.step_data
-        };
-      });
-      setSaveStatus("saved");
-
+      if (!isOnline) {
+        setSaveStatus("offline-queued");
+      } else {
+        // Merge backend returned progress (retains completed timestamps)
+        setProgress(prev => {
+          const currentKey = prev[stepKey]?.idempotency_key;
+          if (currentKey && currentKey !== idempotencyKey) {
+            return prev;
+          }
+          return {
+            ...prev,
+            [stepKey]: data.step_data
+          };
+        });
+        setSaveStatus("saved");
+      }
     } catch (err) {
-      console.error("Auto-save failed, queueing offline:", err);
-      // Fallback: Add to offline queue
-      const updatedQueue = [...offlineQueue.filter(q => q.stepKey !== stepKey), {
-        stepKey,
-        inputs,
-        skipped,
-        idempotencyKey
-      }];
-      setOfflineQueue(updatedQueue);
-      localStorage.setItem(`inspection_sync_queue_${id}`, JSON.stringify(updatedQueue));
+      console.error("Save failed:", err);
       setSaveStatus("offline-queued");
     }
   };
@@ -432,7 +267,7 @@ function GuidedInspectionContent() {
 
     setAiRunningStep(stepKey);
     try {
-      const res = await fetch(`${API_URL}/jobs/${id}/workflow/${stepKey}/ai`, {
+      const res = await offlineSafeFetch(`${API_URL}/jobs/${id}/workflow/${stepKey}/ai`, {
         method: "POST",
         headers: { Authorization: `Bearer ${accessToken}` }
       });
@@ -475,6 +310,39 @@ function GuidedInspectionContent() {
     if (!file) return;
 
     setIsUploadingPhoto(stepKey);
+
+    // Offline mode support for Guided Inspection photo capture
+    if (!isOnline) {
+      try {
+        let pType = "general";
+        if (stepKey === "arrive_on_site") {
+          pType = "before";
+        } else if (stepKey === "equipment_id") {
+          pType = "nameplate";
+        } else if (stepKey === "wrap_up") {
+          pType = "after";
+        }
+        const caption = `Uploaded for inspection step: ${stepKey}`;
+        const { id: photoId, objectUrl } = await saveOfflinePhoto(id as string, stepKey, pType, file, caption);
+
+        const currentInputs = progress[stepKey]?.inputs || {};
+        const nextInputs = {
+          ...currentInputs,
+          photo_url: objectUrl,
+          photo_id: photoId,
+          caption: caption
+        };
+        // Save photo references inside step inputs (which will queue the mutation in sync_queue when offline)
+        await saveStepData(stepKey, nextInputs);
+        alert("Photo saved offline. It will upload when you are back online.");
+      } catch (err: any) {
+        alert("Failed to save photo offline: " + err.message);
+      } finally {
+        setIsUploadingPhoto(null);
+      }
+      return;
+    }
+
     try {
       const formData = new FormData();
       formData.append("file", file);
@@ -490,7 +358,7 @@ function GuidedInspectionContent() {
       formData.append("photo_type", pType);
       formData.append("caption", `Uploaded for inspection step: ${stepKey}`);
 
-      const res = await fetch(`${API_URL}/jobs/${id}/photos`, {
+      const res = await offlineSafeFetch(`${API_URL}/jobs/${id}/photos`, {
         method: "POST",
         headers: { Authorization: `Bearer ${accessToken}` },
         body: formData
@@ -1124,7 +992,7 @@ function GuidedInspectionContent() {
           ) : saveStatus === "offline-queued" ? (
             <span className="flex items-center gap-1 text-[10px] font-bold text-amber-400 bg-amber-500/10 px-2 py-1 rounded-full border border-amber-500/20 animate-pulse">
               <CloudLightning className="h-3 w-3" />
-              Unsaved ({offlineQueue.length})
+              Unsaved ({offlineQueueLength})
             </span>
           ) : (
             <span className="flex items-center gap-1 text-[10px] font-bold text-emerald-400 bg-emerald-500/10 px-2 py-1 rounded-full border border-emerald-500/20">

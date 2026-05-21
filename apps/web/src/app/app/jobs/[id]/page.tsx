@@ -4,6 +4,8 @@ import React, { useState, useEffect, useRef } from "react";
 import { useParams, useRouter } from "next/navigation";
 import { useAuth } from "../../../../hooks/useAuth";
 import { AuthGuard } from "../../../../components/AuthGuard";
+import { offlineSafeFetch } from "../../../../utils/apiClient";
+import { saveOfflinePhoto, cacheJob } from "../../../../utils/indexedDB";
 import {
   ArrowLeft,
   Clock,
@@ -167,7 +169,7 @@ function JobCardContent() {
   const fetchJobDetails = async () => {
     if (!accessToken) return;
     try {
-      const res = await fetch(`${API_URL}/jobs/${id}`, {
+      const res = await offlineSafeFetch(`${API_URL}/jobs/${id}`, {
         headers: { Authorization: `Bearer ${accessToken}` }
       });
       if (!res.ok) {
@@ -195,7 +197,7 @@ function JobCardContent() {
     if (!accessToken || !job) return;
     setIsTransitioning(true);
     try {
-      const res = await fetch(`${API_URL}/jobs/${job.id}/status`, {
+      const res = await offlineSafeFetch(`${API_URL}/jobs/${job.id}/status`, {
         method: "POST",
         headers: {
           Authorization: `Bearer ${accessToken}`,
@@ -224,7 +226,7 @@ function JobCardContent() {
     if (!accessToken || !job || !newNote.trim()) return;
     setIsAddingNote(true);
     try {
-      const res = await fetch(`${API_URL}/jobs/${job.id}/notes`, {
+      const res = await offlineSafeFetch(`${API_URL}/jobs/${job.id}/notes`, {
         method: "POST",
         headers: {
           Authorization: `Bearer ${accessToken}`,
@@ -250,7 +252,7 @@ function JobCardContent() {
     setIsAddingPart(true);
     try {
       const priceCents = Math.round(parseFloat(partPrice || "0") * 100);
-      const res = await fetch(`${API_URL}/jobs/${job.id}/parts`, {
+      const res = await offlineSafeFetch(`${API_URL}/jobs/${job.id}/parts`, {
         method: "POST",
         headers: {
           Authorization: `Bearer ${accessToken}`,
@@ -282,7 +284,7 @@ function JobCardContent() {
   const handleDeletePart = async (partId: string) => {
     if (!accessToken || !job || !confirm("Are you sure you want to remove this part?")) return;
     try {
-      const res = await fetch(`${API_URL}/jobs/${job.id}/parts/${partId}`, {
+      const res = await offlineSafeFetch(`${API_URL}/jobs/${job.id}/parts/${partId}`, {
         method: "DELETE",
         headers: { Authorization: `Bearer ${accessToken}` }
       });
@@ -298,13 +300,13 @@ function JobCardContent() {
   const handleDeletePhoto = async (photoId: string) => {
     if (!accessToken || !job || !confirm("Are you sure you want to delete this photo?")) return;
     try {
-      const res = await fetch(`${API_URL}/jobs/${job.id}/photos/${photoId}`, {
+      const res = await offlineSafeFetch(`${API_URL}/jobs/${job.id}/photos/${photoId}`, {
         method: "DELETE",
         headers: { Authorization: `Bearer ${accessToken}` }
       });
       if (!res.ok) throw new Error("Failed to delete photo");
       
-      const jobRes = await fetch(`${API_URL}/jobs/${job.id}`, {
+      const jobRes = await offlineSafeFetch(`${API_URL}/jobs/${job.id}`, {
         headers: { Authorization: `Bearer ${accessToken}` }
       });
       if (!jobRes.ok) throw new Error("Failed to refresh job details");
@@ -320,6 +322,34 @@ function JobCardContent() {
     const file = e.target.files?.[0];
     if (!file || !accessToken || !job) return;
     setIsUploadingPhoto(true);
+
+    if (typeof window !== "undefined" && !navigator.onLine) {
+      try {
+        const { id: photoId, objectUrl } = await saveOfflinePhoto(job.id, "", photoType, file);
+
+        const localJob = { ...job };
+        if (!localJob.photos) localJob.photos = [];
+        localJob.photos.push({
+          id: photoId,
+          photo_type: photoType,
+          cdn_url: objectUrl,
+          caption: photoCaption.trim() || null,
+          taken_at: new Date().toISOString()
+        });
+        setJob(localJob);
+        await cacheJob(localJob);
+
+        setPhotoCaption("");
+        if (fileInputRef.current) fileInputRef.current.value = "";
+        alert("Photo saved offline. It will upload when you are back online.");
+      } catch (err: any) {
+        alert("Failed to save photo offline: " + err.message);
+      } finally {
+        setIsUploadingPhoto(false);
+      }
+      return;
+    }
+
     try {
       const formData = new FormData();
       formData.append("file", file);
@@ -328,7 +358,7 @@ function JobCardContent() {
         formData.append("caption", photoCaption);
       }
 
-      const res = await fetch(`${API_URL}/jobs/${job.id}/photos`, {
+      const res = await offlineSafeFetch(`${API_URL}/jobs/${job.id}/photos`, {
         method: "POST",
         headers: { Authorization: `Bearer ${accessToken}` },
         body: formData

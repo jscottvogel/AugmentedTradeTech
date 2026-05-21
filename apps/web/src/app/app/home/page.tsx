@@ -4,6 +4,7 @@ import React, { useState, useEffect, useRef } from "react";
 import Link from "next/link";
 import { useAuth } from "../../../hooks/useAuth";
 import { AuthGuard } from "../../../components/AuthGuard";
+import { offlineSafeFetch } from "../../../utils/apiClient";
 import { 
   Home, 
   Briefcase, 
@@ -164,9 +165,9 @@ function HomeScreenContent() {
     try {
       // Parallel fetches for jobs and stats
       const [resToday, resUpcoming, resStats] = await Promise.all([
-        fetch(`${API_URL}/me/jobs/today`, { headers: { Authorization: `Bearer ${accessToken}` } }),
-        fetch(`${API_URL}/me/jobs/upcoming`, { headers: { Authorization: `Bearer ${accessToken}` } }),
-        fetch(`${API_URL}/me/stats/today`, { headers: { Authorization: `Bearer ${accessToken}` } }),
+        offlineSafeFetch(`${API_URL}/me/jobs/today`, { headers: { Authorization: `Bearer ${accessToken}` } }),
+        offlineSafeFetch(`${API_URL}/me/jobs/upcoming`, { headers: { Authorization: `Bearer ${accessToken}` } }),
+        offlineSafeFetch(`${API_URL}/me/stats/today`, { headers: { Authorization: `Bearer ${accessToken}` } }),
       ]);
 
       if (resToday.ok) {
@@ -199,7 +200,7 @@ function HomeScreenContent() {
     if (!user || !user.is_active || user.role !== "tech" || !accessToken) return;
 
     const sendHeartbeat = () => {
-      fetch(`${API_URL}/me/heartbeat`, {
+      offlineSafeFetch(`${API_URL}/me/heartbeat`, {
         method: "POST",
         headers: { Authorization: `Bearer ${accessToken}` }
       }).catch(err => console.error("Heartbeat error:", err));
@@ -282,7 +283,7 @@ function HomeScreenContent() {
   const handleStatusChange = async (newStatus: string) => {
     if (!accessToken) return;
     try {
-      const res = await fetch(`${API_URL}/me/availability`, {
+      const res = await offlineSafeFetch(`${API_URL}/me/availability`, {
         method: "PUT",
         headers: {
           "Content-Type": "application/json",

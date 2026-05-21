@@ -2,6 +2,7 @@ import type { Metadata } from "next";
 import { Geist, Geist_Mono } from "next/font/google";
 import "./globals.css";
 import { AuthProvider } from "../context/AuthContext";
+import { ConnectivityProvider } from "../context/ConnectivityContext";
 
 import type { Viewport } from "next";
 import { PWARegistrar } from "../components/PWARegistrar";
@@ -34,7 +35,7 @@ export const viewport: Viewport = {
   maximumScale: 1,
   userScalable: false,
   viewportFit: "cover",
-};
+ };
 
 export default function RootLayout({
   children,
@@ -45,8 +46,10 @@ export default function RootLayout({
     <html lang="en" className={`${geistSans.variable} ${geistMono.variable}`}>
       <body className="antialiased bg-slate-950 text-slate-100">
         <AuthProvider>
-          <PWARegistrar />
-          {children}
+          <ConnectivityProvider>
+            <PWARegistrar />
+            {children}
+          </ConnectivityProvider>
         </AuthProvider>
       </body>
     </html>

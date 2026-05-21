@@ -323,6 +323,7 @@ def get_my_jobs_today(request: Request, db: Session = Depends(get_db)):
             "dispatcher_notes": job.dispatcher_notes,
             "scheduled_start": job.scheduled_start.isoformat() if job.scheduled_start else None,
             "scheduled_end": job.scheduled_end.isoformat() if job.scheduled_end else None,
+            "updated_at": job.updated_at.isoformat() if job.updated_at else None,
             "customer": {
                 "id": customer.id,
                 "first_name": customer.first_name,
@@ -386,6 +387,7 @@ def get_my_jobs_upcoming(request: Request, db: Session = Depends(get_db)):
             "dispatcher_notes": job.dispatcher_notes,
             "scheduled_start": job.scheduled_start.isoformat() if job.scheduled_start else None,
             "scheduled_end": job.scheduled_end.isoformat() if job.scheduled_end else None,
+            "updated_at": job.updated_at.isoformat() if job.updated_at else None,
             "customer": {
                 "id": customer.id,
                 "first_name": customer.first_name,

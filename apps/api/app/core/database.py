@@ -27,13 +27,27 @@ DATABASE_URL = os.getenv(
     f"postgresql+psycopg://{DB_USER}:{DB_PASSWORD}@{DB_HOST}:{DB_PORT}/{DB_NAME}"
 )
 
+from sqlalchemy.pool import NullPool
+
 # SQLAlchemy engine config
-engine = create_engine(
-    DATABASE_URL,
-    pool_pre_ping=True,
-    pool_size=10,
-    max_overflow=20
+import sys
+IS_TESTING = (
+    "pytest" in sys.modules 
+    or any("pytest" in arg for arg in sys.argv) 
+    or "PYTEST_CURRENT_TEST" in os.environ 
+    or os.environ.get("TESTING", "") == "1"
 )
+
+engine_kwargs = {
+    "pool_pre_ping": True
+}
+if IS_TESTING:
+    engine_kwargs["poolclass"] = NullPool
+else:
+    engine_kwargs["pool_size"] = 10
+    engine_kwargs["max_overflow"] = 20
+
+engine = create_engine(DATABASE_URL, **engine_kwargs)
 
 SessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=engine)
 

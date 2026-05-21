@@ -16,7 +16,7 @@ import boto3
 import httpx
 import ulid
 
-from apps.api.app.core.database import get_db, SessionLocal, set_rls_context
+from apps.api.app.core.database import get_db, SessionLocal, set_rls_context, IS_TESTING
 from apps.api.app.services.diagnosis_pipeline import run_diagnosis_pipeline
 from apps.api.app.models.ai import AIRequest
 from apps.api.app.models.job import Job, JobPhoto, JobTechnician
@@ -591,17 +591,20 @@ async def diagnose_job(
     if not queue_url:
         logger.info("SQS queue not available. Running AI diagnosis pipeline in background.")
         
-        async def run_in_background(j_id: str, comp_id: str):
-            bg_db = SessionLocal()
-            try:
-                set_rls_context(bg_db, comp_id, None, "system")
-                await run_diagnosis_pipeline(j_id, bg_db)
-            except Exception as e:
-                logger.error(f"Error executing background AI diagnosis pipeline: {e}")
-            finally:
-                bg_db.close()
-                
-        asyncio.create_task(run_in_background(job_id, company_id))
+        if not IS_TESTING:
+            async def run_in_background(j_id: str, comp_id: str):
+                bg_db = SessionLocal()
+                try:
+                    set_rls_context(bg_db, comp_id, None, "system")
+                    await run_diagnosis_pipeline(j_id, bg_db)
+                except Exception as e:
+                    logger.error(f"Error executing background AI diagnosis pipeline: {e}")
+                finally:
+                    bg_db.close()
+                    
+            asyncio.create_task(run_in_background(job_id, company_id))
+        else:
+            logger.info("Skipping background task creation because IS_TESTING is True.")
         
     return {
         "job_id": job_id,

@@ -1,4 +1,14 @@
 export function createQueues() {
+  const syncQueueDLQ = new sst.aws.Queue("SyncQueueDLQ", {
+    transform: {
+      queue: {
+        tags: {
+          Component: "queue",
+        },
+      },
+    },
+  });
+
   const syncQueue = new sst.aws.Queue("SyncQueue", {
     transform: {
       queue: {
@@ -29,5 +39,5 @@ export function createQueues() {
     },
   });
 
-  return { syncQueue, aiQueue, notificationQueue };
+  return { syncQueue, syncQueueDLQ, aiQueue, notificationQueue };
 }

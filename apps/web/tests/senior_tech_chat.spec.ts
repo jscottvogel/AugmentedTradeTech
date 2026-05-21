@@ -80,7 +80,7 @@ test.describe("Senior Tech AI Chat Interface E2E Tests", () => {
     await page.waitForTimeout(500);
 
     // Verify offline warning banner and status badge
-    await expect(page.locator("text=Offline Mode")).toBeVisible();
+    await expect(page.locator("text=Offline Mode").first()).toBeVisible();
     await expect(page.locator("text=AI chat requires connection.")).toBeVisible();
 
     // Reconnect to restore state
