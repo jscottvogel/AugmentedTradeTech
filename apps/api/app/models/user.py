@@ -15,9 +15,13 @@ class User(Base, AuditMixin):
     role = Column(String, nullable=False, index=True)
     is_active = Column(Boolean, nullable=False, default=True)
     last_login_at = Column(DateTime(timezone=True), nullable=True)
+    password_hash = Column(String, nullable=True)
+    mfa_secret = Column(String, nullable=True)
+    mfa_enabled = Column(Boolean, nullable=False, default=False)
 
     # Relationships
     tech_profile = relationship("TechProfile", back_populates="user", uselist=False, foreign_keys="[TechProfile.user_id]")
+    availability_logs = relationship("AvailabilityStatusLog", back_populates="user", foreign_keys="[AvailabilityStatusLog.user_id]", cascade="all, delete-orphan")
 
     __table_args__ = (
         CheckConstraint(
@@ -37,6 +41,8 @@ class TechProfile(Base, TenantAuditMixin):
     truck_id = Column(String, nullable=True)
     license_number = Column(String, nullable=True)
     hire_date = Column(Date, nullable=True)
+    last_heartbeat_at = Column(DateTime(timezone=True), nullable=True)
+    status_changed_at = Column(DateTime(timezone=True), nullable=False, server_default="now()")
 
     # Relationships
     user = relationship("User", back_populates="tech_profile", foreign_keys=[user_id])
@@ -47,3 +53,14 @@ class TechProfile(Base, TenantAuditMixin):
             name="chk_availability"
         ),
     )
+
+class AvailabilityStatusLog(Base, TenantAuditMixin):
+    __tablename__ = "availability_status_logs"
+
+    user_id = Column(String, ForeignKey("users.id", ondelete="CASCADE"), nullable=False, index=True)
+    status = Column(String, nullable=False)
+    started_at = Column(DateTime(timezone=True), nullable=False, server_default="now()")
+    ended_at = Column(DateTime(timezone=True), nullable=True)
+
+    # Relationships
+    user = relationship("User", back_populates="availability_logs", foreign_keys=[user_id])

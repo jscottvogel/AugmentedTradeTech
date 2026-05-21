@@ -1,5 +1,19 @@
+import jwt
 from fastapi import FastAPI, Request
+from fastapi.responses import JSONResponse
 from mangum import Mangum
+
+from fastapi.middleware.cors import CORSMiddleware
+
+from apps.api.app.routers.auth import router as auth_router, JWT_SECRET, ALGORITHM
+from apps.api.app.routers.onboarding import router as onboarding_router
+from apps.api.app.routers.users import router as users_router
+from apps.api.app.routers.me import router as me_router
+from apps.api.app.routers.techs import router as techs_router
+from apps.api.app.routers.jobs import router as jobs_router
+from apps.api.app.routers.dispatch import router as dispatch_router
+from apps.api.app.routers.customers import router as customers_router
+from apps.api.app.routers.ai import router as ai_router, equipment_router
 
 app = FastAPI(
     title="Augmented Trade Tech API",
@@ -7,11 +21,85 @@ app = FastAPI(
     version="1.0.0",
 )
 
+# CORS configuration
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=["http://localhost:3000"],
+    allow_credentials=True,
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
+
+app.include_router(auth_router)
+app.include_router(onboarding_router)
+app.include_router(users_router)
+app.include_router(me_router)
+app.include_router(techs_router)
+app.include_router(jobs_router)
+app.include_router(dispatch_router)
+app.include_router(customers_router)
+app.include_router(ai_router)
+app.include_router(equipment_router)
+
+PUBLIC_PREFIXES = ("/docs", "/redoc", "/openapi.json", "/mock-s3-upload")
+PUBLIC_PATHS = {
+    "/health",
+    "/auth/lookup",
+    "/auth/magic-link",
+    "/auth/magic-link/verify",
+    "/auth/login",
+    "/auth/refresh",
+    "/auth/logout",
+    "/onboarding/company"
+}
+
 @app.middleware("http")
 async def add_rls_context_middleware(request: Request, call_next):
-    request.state.company_id = request.headers.get("X-Company-ID")
-    request.state.user_id = request.headers.get("X-User-ID")
-    request.state.role = request.headers.get("X-Role")
+    if request.method == "OPTIONS":
+        return await call_next(request)
+
+    path = request.url.path
+    if path != "/" and path.endswith("/"):
+        path = path[:-1]
+
+    is_public = (
+        path in PUBLIC_PATHS or 
+        path.startswith(PUBLIC_PREFIXES) or 
+        (path.startswith("/onboarding/") and path.endswith("/stripe/callback"))
+    )
+    auth_header = request.headers.get("Authorization")
+
+    if not is_public:
+        if not auth_header or not auth_header.startswith("Bearer "):
+            return JSONResponse(
+                status_code=401,
+                content={"detail": "Missing or invalid authorization credentials"}
+            )
+        token = auth_header.split(" ")[1]
+        try:
+            payload = jwt.decode(token, JWT_SECRET, algorithms=[ALGORITHM])
+            request.state.user_id = payload.get("user_id")
+            request.state.company_id = payload.get("company_id")
+            request.state.role = payload.get("role")
+            request.state.email = payload.get("email")
+            request.state.user = payload
+        except jwt.ExpiredSignatureError:
+            return JSONResponse(status_code=401, content={"detail": "Token signature has expired"})
+        except jwt.InvalidTokenError:
+            return JSONResponse(status_code=401, content={"detail": "Invalid token"})
+    else:
+        if auth_header and auth_header.startswith("Bearer "):
+            token = auth_header.split(" ")[1]
+            try:
+                payload = jwt.decode(token, JWT_SECRET, algorithms=[ALGORITHM])
+                request.state.user_id = payload.get("user_id")
+                request.state.company_id = payload.get("company_id")
+                request.state.role = payload.get("role")
+                request.state.email = payload.get("email")
+                request.state.user = payload
+            except Exception:
+                pass
+
     response = await call_next(request)
     return response
 
@@ -21,6 +109,12 @@ def health_check():
         "status": "healthy",
         "service": "augmented-trade-tech-backend"
     }
+
+@app.put("/mock-s3-upload/{path:path}")
+async def mock_s3_upload(path: str, request: Request):
+    """Mock receiver endpoint representing direct S3 PUT uploads during local development"""
+    body = await request.body()
+    return {"status": "success", "s3_key": path, "size_bytes": len(body)}
 
 # Wrap with Mangum for AWS Lambda integration in production
 handler = Mangum(app)

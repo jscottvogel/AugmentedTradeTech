@@ -33,6 +33,9 @@ class Job(Base, TenantAuditMixin):
     photos = relationship("JobPhoto", back_populates="job")
     notes = relationship("JobNote", back_populates="job")
     status_history = relationship("JobStatusHistory", back_populates="job")
+    customer = relationship("Customer")
+    equipment = relationship("Equipment")
+    parts = relationship("JobPart", back_populates="job", cascade="all, delete-orphan")
 
     __table_args__ = (
         UniqueConstraint("company_id", "job_number", name="uq_jobs_number"),
@@ -92,6 +95,7 @@ class JobPhoto(Base):
     taken_at = Column(DateTime(timezone=True), nullable=False, server_default="now()")
     created_at = Column(DateTime(timezone=True), nullable=False, server_default="now()")
     created_by = Column(String, ForeignKey("users.id", ondelete="SET NULL"), nullable=True)
+    deleted_at = Column(DateTime(timezone=True), nullable=True)
 
     # Relationships
     job = relationship("Job", back_populates="photos")
@@ -136,3 +140,15 @@ class JobStatusHistory(Base):
 
     # Relationships
     job = relationship("Job", back_populates="status_history")
+
+class JobPart(Base, TenantAuditMixin):
+    __tablename__ = "job_parts"
+
+    job_id = Column(String, ForeignKey("jobs.id", ondelete="CASCADE"), nullable=False, index=True)
+    name = Column(String, nullable=False)
+    quantity = Column(Integer, nullable=False, default=1)
+    price_cents = Column(Integer, nullable=False, default=0)
+    serial_number = Column(String, nullable=True)
+
+    # Relationships
+    job = relationship("Job", back_populates="parts")

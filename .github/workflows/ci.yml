@@ -1,0 +1,260 @@
+name: CI/CD Pipeline
+
+on:
+  pull_request:
+    branches:
+      - main
+  push:
+    branches:
+      - main
+    tags:
+      - 'v*.*.*'
+
+# Required permissions for AWS OIDC authentication (optional but recommended)
+permissions:
+  id-token: write
+  contents: read
+
+jobs:
+  validate:
+    name: Lint & Type Check
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout Code
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: 'npm'
+
+      - name: Install Frontend Dependencies
+        run: npm ci
+
+      - name: Frontend Lint (ESLint)
+        run: npm run lint --workspace=apps/web
+
+      - name: Frontend Type Check (tsc)
+        run: npx tsc --noEmit --project apps/web/tsconfig.json
+
+      - name: Setup Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.13'
+          cache: 'pip'
+
+      - name: Install Python Tooling
+        run: |
+          pip install ruff mypy
+
+      - name: Backend Lint (Ruff)
+        run: ruff check apps/api
+
+      - name: Backend Type Check (mypy)
+        run: mypy --ignore-missing-imports apps/api/app
+
+  test-dev:
+    name: Spin Up Dev DB & Run Tests
+    runs-on: ubuntu-latest
+    needs: validate
+    # Only run on pull requests and pushes to main
+    if: github.event_name == 'pull_request' || (github.event_name == 'push' && github.ref == 'refs/heads/main')
+    env:
+      STAGE_NAME: test-pr-${{ github.event.number || github.run_id }}
+    steps:
+      - name: Checkout Code
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: 'npm'
+
+      - name: Install Frontend Dependencies
+        run: npm ci
+
+      - name: Setup Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.13'
+          cache: 'pip'
+
+      - name: Install Backend Dependencies
+        run: |
+          pip install ./apps/api
+          pip install pytest psycopg[binary] alembic
+
+      - name: Configure AWS Credentials
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          # Configured via GitHub Secrets. Can also use OIDC role-to-assume.
+          aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
+          aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+          aws-region: ${{ secrets.AWS_REGION || 'us-east-1' }}
+
+      - name: Spin up Aurora Serverless via SST dev
+        run: |
+          npx sst dev --stage ${{ env.STAGE_NAME }} > sst_dev.log 2>&1 &
+          # Run in background to establish the local dev tunnel
+
+      - name: Wait for Database Tunnel to be Ready
+        run: |
+          echo "Waiting for SST dev database tunnel to become active..."
+          for i in {1..30}; do
+            if npx sst shell --stage ${{ env.STAGE_NAME }} "PYTHONPATH=. python -c '
+          import psycopg, sys
+          from apps.api.app.core.database import DATABASE_URL
+          try:
+              conn = psycopg.connect(DATABASE_URL, connect_timeout=3)
+              conn.close()
+              sys.exit(0)
+          except Exception as e:
+              print(f\"Connection attempt failed: {e}\")
+              sys.exit(1)
+          '" ; then
+              echo "Database tunnel is ready!"
+              exit 0
+            fi
+            echo "Database not ready yet, retrying in 10s..."
+            sleep 10
+          done
+          echo "Timeout waiting for database to be ready."
+          exit 1
+
+      - name: Run Alembic Migrations
+        run: |
+          npx sst shell --stage ${{ env.STAGE_NAME }} "cd packages/db && alembic upgrade head"
+
+      - name: Run pytest suite (including RLS tests)
+        run: |
+          npx sst shell --stage ${{ env.STAGE_NAME }} "PYTHONPATH=. pytest apps/api"
+
+      - name: Wait for Next.js Frontend to be Ready
+        run: |
+          echo "Waiting for Next.js frontend port 3000..."
+          for i in {1..30}; do
+            if curl -s -f http://localhost:3000 > /dev/null; then
+              echo "Frontend is ready!"
+              exit 0
+            fi
+            echo "Frontend not ready yet, retrying in 5s..."
+            sleep 5
+          done
+          echo "Timeout waiting for frontend to be ready."
+          exit 1
+
+      - name: Run Playwright Smoke Tests
+        run: |
+          npx playwright install --with-deps chromium
+          BASE_URL=http://localhost:3000 npx playwright test --config=apps/web/playwright.config.ts
+
+      - name: Print SST Dev logs on failure
+        if: failure()
+        run: |
+          if [ -f sst_dev.log ]; then
+            echo "=== SST DEV LOGS ==="
+            cat sst_dev.log
+          fi
+
+      - name: Tear Down Test Resources
+        if: always()
+        run: |
+          npx sst remove --stage ${{ env.STAGE_NAME }}
+
+  deploy-staging:
+    name: Deploy to Staging
+    runs-on: ubuntu-latest
+    needs: test-dev
+    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+    steps:
+      - name: Checkout Code
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: 'npm'
+
+      - name: Install Frontend Dependencies
+        run: npm ci
+
+      - name: Configure AWS Credentials
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
+          aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+          aws-region: ${{ secrets.AWS_REGION || 'us-east-1' }}
+
+      - name: Deploy to Staging Stage
+        run: npx sst deploy --stage staging
+
+      - name: Run Post-Deploy Smoke Tests against Staging
+        run: |
+          # Get staging URL from sst outputs
+          STAGING_URL=$(npx sst outputs --stage staging | jq -r '.webUrl')
+          echo "Staging URL: $STAGING_URL"
+          
+          # Run Playwright tests
+          npx playwright install --with-deps chromium
+          BASE_URL=$STAGING_URL npx playwright test --config=apps/web/playwright.config.ts
+
+  deploy-prod:
+    name: Deploy to Production
+    runs-on: ubuntu-latest
+    # Only run on pushes to tags matching v*.*.*
+    if: github.event_name == 'push' && startsWith(github.ref, 'refs/tags/v')
+    steps:
+      - name: Checkout Code
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: 'npm'
+
+      - name: Install Frontend Dependencies
+        run: npm ci
+
+      - name: Configure AWS Credentials
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
+          aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+          aws-region: ${{ secrets.AWS_REGION || 'us-east-1' }}
+
+      - name: Deploy to Production Stage
+        run: npx sst deploy --stage prod
+
+      - name: Run Post-Deploy Health Checks
+        run: |
+          # Get API and Web URLs from SST outputs
+          PROD_WEB_URL=$(npx sst outputs --stage prod | jq -r '.webUrl')
+          PROD_API_URL=$(npx sst outputs --stage prod | jq -r '.apiUrl')
+          echo "Production Web URL: $PROD_WEB_URL"
+          echo "Production API URL: $PROD_API_URL"
+          
+          # Health check API
+          curl -f -s "$PROD_API_URL/health"
+          
+          # Health check Frontend
+          curl -f -s "$PROD_WEB_URL"
+
+      - name: Notify SNS on Success
+        if: success()
+        run: |
+          aws sns publish \
+            --topic-arn "${{ secrets.SNS_TOPIC_ARN }}" \
+            --subject "Production Deployment Successful" \
+            --message "Augmented Trade Tech version ${{ github.ref_name }} was successfully deployed to production."
+
+      - name: Notify SNS on Failure
+        if: failure()
+        run: |
+          aws sns publish \
+            --topic-arn "${{ secrets.SNS_TOPIC_ARN }}" \
+            --subject "Production Deployment Failed" \
+            --message "Augmented Trade Tech version ${{ github.ref_name }} production deployment failed. Please check the GitHub Actions logs."

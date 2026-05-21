@@ -48,6 +48,16 @@ export default $config({
     // 5. Web Stack (Next.js SSR Web Site)
     const { web } = createWeb(db, apiRouter);
 
+    // 6. Background Heartbeat Timeout Cron Job (Runs every 5 minutes)
+    new sst.aws.Cron("HeartbeatCron", {
+      schedule: "rate(5 minutes)",
+      job: {
+        handler: "apps/api/app/cron/heartbeat.handler",
+        link: [db],
+        vpc,
+      },
+    });
+
     return {
       databaseHost: db.host,
       mediaUrl: mediaRouter.url,

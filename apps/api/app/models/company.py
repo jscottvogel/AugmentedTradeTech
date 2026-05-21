@@ -1,6 +1,8 @@
 from sqlalchemy import Column, String, Integer, DateTime
 from sqlalchemy.dialects.postgresql import ARRAY, JSONB
 from apps.api.app.models.base import Base, AuditMixin
+from apps.api.app.core.workflows import DEFAULT_WORKFLOW_CONFIG
+import copy
 
 class Company(Base, AuditMixin):
     __tablename__ = "companies"
@@ -21,7 +23,7 @@ class Company(Base, AuditMixin):
     # Postgres specific types: GIN indexed or JSON fields
     trades = Column(ARRAY(String), nullable=False, server_default="{}")
     dispatch_mode = Column(String, nullable=False, server_default="dispatcher")
-    workflow_config = Column(JSONB, nullable=False, server_default="{}")
+    workflow_config = Column(JSONB, nullable=False, server_default="{}", default=lambda: copy.deepcopy(DEFAULT_WORKFLOW_CONFIG))
     notification_config = Column(JSONB, nullable=False, server_default="{}")
     
     tax_rate_bps = Column(Integer, nullable=False, server_default="0")
@@ -37,3 +39,6 @@ class Company(Base, AuditMixin):
     sns_spend_limit_usd = Column(Integer, nullable=False, server_default="100")
     trial_ends_at = Column(DateTime(timezone=True), nullable=True)
     subscription_status = Column(String, nullable=False, server_default="trial")
+    onboarding_step = Column(Integer, nullable=False, server_default="1")
+    service_area_zips = Column(ARRAY(String), nullable=False, server_default="{}")
+    business_hours = Column(JSONB, nullable=False, server_default="{}")
